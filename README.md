@@ -31,7 +31,7 @@ ProcessSH is a lightweight Windows application that provides a quick command exe
 
 ## Usage
 
-Open the application, click the ⚡ icon in the system tray, type a command, and press Enter.
+Open the application, click the icon in the system tray, type a command, and press Enter.
 
 | Input | Result |
 |-------|--------|
