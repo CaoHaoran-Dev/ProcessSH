@@ -117,7 +117,7 @@ dotnet build
 dotnet run
 ```
 
-需要 .NET 10 SDK 與 Windows App SDK 1.6。
+需要 .NET 10 SDK 與 Windows App SDK 2.5.1。
 
 ### 編譯安裝程式
 

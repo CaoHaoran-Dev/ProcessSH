@@ -117,7 +117,7 @@ dotnet build
 dotnet run
 ```
 
-Requires .NET 10 SDK and Windows App SDK 1.6.
+Requires .NET 10 SDK and Windows App SDK 2.5.1.
 
 ### Build the Installer
 
