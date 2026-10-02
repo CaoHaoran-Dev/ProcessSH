@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ProcessSH (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ProcessSH (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
