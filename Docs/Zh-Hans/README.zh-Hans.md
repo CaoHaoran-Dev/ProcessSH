@@ -92,7 +92,7 @@ ProcessSH 支持英文、简体中文与繁体中文。可于 **设置 → 语�
 
 ## 系统需求
 
-- Windows 10 版本 2004（组建 19041）或以上
+- Windows 10 版本 2004（Build 19041）或以上
 - x64 或 ARM64
 - PowerShell 7 或以上（可从 Microsoft Store 或 GitHub 安装）
 
@@ -102,7 +102,7 @@ ProcessSH 支持英文、简体中文与繁体中文。可于 **设置 → 语�
 
 ### 下载（建议方式）
 
-从 [Releases](https://github.com/CaoHaoran-Dev/RunProcess/releases) 下载最新的 `ProcessSH-Setup-x.x.x.exe`。
+从 [Releases](https://github.com/CaoHaoran-Dev/ProcessSH/releases) 下载最新的 `ProcessSH-Setup-x.x.x.exe`。
 
 1. 下载并执行安装程序。
 2. 安装程序会自动侦测你的系统架构（x64 或 ARM64），并安装对应版本。
@@ -110,14 +110,14 @@ ProcessSH 支持英文、简体中文与繁体中文。可于 **设置 → 语�
 
 ### 从原始码编译
 
-```bash
-git clone https://github.com/CaoHaoran-Dev/RunProcess.git
+```powershell
+git clone https://github.com/CaoHaoran-Dev/ProcessSH.git
 cd ProcessSH
 dotnet build
 dotnet run
 ```
 
-需要 .NET 10 SDK 与 Windows App SDK 1.6。
+需要 .NET 10 SDK 与 Windows App SDK 2.5.1。
 
 ### 编译安装程序
 

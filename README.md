@@ -102,7 +102,7 @@ ProcessSH supports English, Simplified Chinese, and Traditional Chinese. Languag
 
 ### Download (Recommended)
 
-Download the latest `ProcessSH-Setup-x.x.x.exe` from [Releases](https://github.com/CaoHaoran-Dev/RunProcess/releases).
+Download the latest `ProcessSH-Setup-x.x.x.exe` from [Releases](https://github.com/CaoHaoran-Dev/ProcessSH/releases).
 
 1. Download and run the installer.
 2. The installer will detect your architecture (x64 or ARM64) and install the correct version.
@@ -110,8 +110,8 @@ Download the latest `ProcessSH-Setup-x.x.x.exe` from [Releases](https://github.c
 
 ### Build from Source
 
-```bash
-git clone https://github.com/CaoHaoran-Dev/RunProcess.git
+```powershell
+git clone https://github.com/CaoHaoran-Dev/ProcessSH.git
 cd ProcessSH
 dotnet build
 dotnet run
