@@ -8,7 +8,7 @@
 #define MyAppName "ProcessSH"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "CaoHaoran-Dev"
-#define MyAppURL "https://github.com/CaoHaoran-Dev/RunProcess"
+#define MyAppURL "https://github.com/CaoHaoran-Dev/ProcessSH"
 #define MyAppExeName "ProcessSH.exe"
 
 [Setup]
@@ -24,8 +24,8 @@ Compression=lzma2
 SolidCompression=yes
 OutputDir=.\installer_output
 OutputBaseFilename=ProcessSH-Setup-{#MyAppVersion}
-ArchitecturesAllowed=x64compatible arm64
-ArchitecturesInstallIn64BitMode=x64compatible arm64
+ArchitecturesAllowed=x64compatible or arm64
+ArchitecturesInstallIn64BitMode=x64compatible or arm64
 PrivilegesRequired=admin
 WizardStyle=modern
 
@@ -33,11 +33,11 @@ WizardStyle=modern
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-; x64 版本文件（仅在 x64 系统上安装）
-Source: "ProcessSH\publish\x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: IsX64
+; x64 版本文件（优先在 x64 兼容系统上安装）
+Source: "ProcessSH\publish\x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: PreferX64Files
 
-; ARM64 版本文件（仅在 ARM64 系统上安装）
-Source: "ProcessSH\publish\arm64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: IsARM64
+; ARM64 版本文件（优先在 ARM64 系统上安装）
+Source: "ProcessSH\publish\arm64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: PreferArm64Files
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -48,15 +48,16 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-// 架构判断函数
-function IsX64: Boolean;
+// 判断是否为 ARM64 系统
+function PreferArm64Files: Boolean;
 begin
-  Result := ProcessorArchitecture = paX64;
+  Result := IsArm64;
 end;
 
-function IsARM64: Boolean;
+// 判断是否为 x64 兼容系统（且非 ARM64 优先）
+function PreferX64Files: Boolean;
 begin
-  Result := ProcessorArchitecture = paARM64;
+  Result := IsX64Compatible and not IsArm64;
 end;
 
 // 安装完成后询问是否跳转 Microsoft Store 安装 PowerShell 7
