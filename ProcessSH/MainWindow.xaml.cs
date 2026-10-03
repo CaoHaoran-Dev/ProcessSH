@@ -17,6 +17,12 @@ public sealed partial class MainWindow : Window
     private bool _hideOnDeactivate;
     private bool _trayMenuOpen;
     private bool _suppressHide;
+    private bool _firstActivated;
+    private DateTime _lastShownAt = DateTime.MinValue;
+
+    // 子窗口单例
+    private SettingsWindow? _settingsWindow;
+    private AboutWindow? _aboutWindow;
 
     private const int WindowWidth = 520;
     private const int BaseHeight = 200;
@@ -35,6 +41,13 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    private const int SW_SHOW = 5;
     private const uint SWP_NOZORDER = 0x0004;
     private const uint SWP_NOACTIVATE = 0x0010;
 
@@ -52,7 +65,8 @@ public sealed partial class MainWindow : Window
         _appWindow.Resize(new SizeInt32(WindowWidth, BaseHeight));
         PositionWindowBottomLeft();
         _appWindow.IsShownInSwitchers = false;
-        _appWindow.SetIcon("Assets/AppIcon.ico");
+
+        TrySetIcon();
 
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -65,6 +79,7 @@ public sealed partial class MainWindow : Window
 
         _hideOnDeactivate = AppSettings.Current.HideOnDeactivate;
         Activated += OnWindowActivated;
+        Activated += OnFirstActivated;
         Closed += OnWindowClosed;
 
         ToggleWindowCommand = new RelayCommand(ToggleWindow);
@@ -80,9 +95,19 @@ public sealed partial class MainWindow : Window
         return AppWindow.GetFromWindowId(windowId);
     }
 
+    private void TrySetIcon()
+    {
+        try
+        {
+            var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (File.Exists(icon))
+                _appWindow.SetIcon(icon);
+        }
+        catch { }
+    }
+
     private void ApplyLocalization()
     {
-        TrayNewItem.Text = Localization.Get("tray.new");
         TrayToggleItem.Text = Localization.Get("tray.toggle");
         TrayClearItem.Text = Localization.Get("tray.clearhistory");
         TraySettingsItem.Text = Localization.Get("tray.settings");
@@ -103,30 +128,41 @@ public sealed partial class MainWindow : Window
         _appWindow.Move(new PointInt32(x, y));
     }
 
-    /// <summary>根据输出行数动态调整窗口高度（使用 Win32 API 绕过 DPI Bug）</summary>
+    /// <summary>
+    /// 根据输出行数动态调整窗口高度。
+    /// 保持窗口底部不动，只向上扩展（Spotlight 风格）。
+    /// </summary>
     public void ResizeForOutput(int lineCount)
     {
         int lineHeight = 20;
         int extra = Math.Max(0, lineCount - 1) * lineHeight;
-        int newHeight = Math.Min(BaseHeight + extra, MaxHeight);
-
-        if (newHeight == _appWindow.Size.Height) return;
-
-        var displayArea = DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Primary);
-        if (displayArea == null) return;
-
-        var workArea = displayArea.WorkArea;
-        int x = workArea.X + 20;
-        int y = workArea.Y + workArea.Height - newHeight - 20;
+        int newHeightLogical = Math.Min(BaseHeight + extra, MaxHeight);
 
         var hwnd = WindowNative.GetWindowHandle(this);
         uint dpi = GetDpiForWindow(hwnd);
         float scalingFactor = dpi / 96f;
 
+        var pos = _appWindow.Position;
+        var size = _appWindow.Size;
+
+        int currentBottomPhysical = pos.Y + (int)(size.Height * scalingFactor);
+        int newWidthPhysical = (int)(WindowWidth * scalingFactor);
+        int newHeightPhysical = (int)(newHeightLogical * scalingFactor);
+
+        int newY = currentBottomPhysical - newHeightPhysical;
+
+        var displayArea = DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Primary);
+        if (displayArea != null)
+        {
+            var workArea = displayArea.WorkArea;
+            if (newY < workArea.Y)
+                newY = workArea.Y;
+        }
+
         SetWindowPos(hwnd, IntPtr.Zero,
-            x, y,
-            (int)(WindowWidth * scalingFactor),
-            (int)(newHeight * scalingFactor),
+            pos.X, newY,
+            newWidthPhysical,
+            newHeightPhysical,
             SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
@@ -149,6 +185,8 @@ public sealed partial class MainWindow : Window
         if (_trayMenuOpen) return;
         if (_suppressHide) return;
 
+        if ((DateTime.Now - _lastShownAt).TotalMilliseconds < 500) return;
+
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
             DispatcherQueue.TryEnqueue(async () =>
@@ -157,10 +195,26 @@ public sealed partial class MainWindow : Window
 
                 if (_trayMenuOpen) return;
                 if (_suppressHide) return;
+                if ((DateTime.Now - _lastShownAt).TotalMilliseconds < 500) return;
 
                 _appWindow.Hide();
             });
         }
+    }
+
+    private void OnFirstActivated(object sender, WindowActivatedEventArgs args)
+    {
+        if (_firstActivated) return;
+        if (args.WindowActivationState == WindowActivationState.Deactivated) return;
+
+        _firstActivated = true;
+
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            await Task.Delay(60);
+            if (RootFrame.Content is MainPage page)
+                page.FocusInput();
+        });
     }
 
     private void TrayMenu_Opening(object sender, object e)
@@ -173,19 +227,33 @@ public sealed partial class MainWindow : Window
         _trayMenuOpen = false;
     }
 
+    /// <summary>
+    /// 关闭主窗口 = 隐藏（不退出）。
+    /// 退出只通过托盘菜单“退出”。
+    /// </summary>
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         args.Handled = true;
-        _appWindow.Hide();
+        try { _appWindow.Hide(); } catch { }
     }
 
+    /// <summary>
+    /// 显示窗口并强制把焦点给输入框。
+    /// </summary>
     public void ShowWindow()
     {
-        _appWindow.Show();
+        var hwnd = WindowNative.GetWindowHandle(this);
+
+        _lastShownAt = DateTime.Now;
+
+        ShowWindow(hwnd, SW_SHOW);
+        SetForegroundWindow(hwnd);
         Activate();
 
-        DispatcherQueue.TryEnqueue(() =>
+        DispatcherQueue.TryEnqueue(async () =>
         {
+            await Task.Delay(60);
+
             if (RootFrame.Content is MainPage page)
                 page.FocusInput();
         });
@@ -204,14 +272,6 @@ public sealed partial class MainWindow : Window
             ShowWindow();
     }
 
-    private void TrayNewWindow_Click(object sender, RoutedEventArgs e)
-    {
-        var newWindow = new MainWindow();
-        App.AllWindows.Add(newWindow);
-        newWindow.Closed += (s, args) => App.AllWindows.Remove(newWindow);
-        newWindow.Activate();
-    }
-
     private void TrayToggleWindow_Click(object sender, RoutedEventArgs e)
     {
         ToggleWindow();
@@ -219,34 +279,48 @@ public sealed partial class MainWindow : Window
 
     private void TrayClearHistory_Click(object sender, RoutedEventArgs e)
     {
-        new CommandHistory().ClearAll();
+        CommandHistory.Shared.ClearAll();
     }
 
     private void TraySettings_Click(object sender, RoutedEventArgs e)
     {
-        var settingsWindow = new SettingsWindow();
+        if (_settingsWindow != null)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
+        _settingsWindow = new SettingsWindow();
         SuppressHide(true);
 
-        settingsWindow.Closed += (s, args) =>
+        _settingsWindow.Closed += (s, args) =>
         {
+            _settingsWindow = null;
             SuppressHide(false);
             RefreshMainPage();
         };
 
-        settingsWindow.Activate();
+        _settingsWindow.Activate();
     }
 
     private void TrayAbout_Click(object sender, RoutedEventArgs e)
     {
-        var aboutWindow = new AboutWindow();
+        if (_aboutWindow != null)
+        {
+            _aboutWindow.Activate();
+            return;
+        }
+
+        _aboutWindow = new AboutWindow();
         SuppressHide(true);
 
-        aboutWindow.Closed += (s, args) =>
+        _aboutWindow.Closed += (s, args) =>
         {
+            _aboutWindow = null;
             SuppressHide(false);
         };
 
-        aboutWindow.Activate();
+        _aboutWindow.Activate();
     }
 
     private void TrayQuit_Click(object sender, RoutedEventArgs e)

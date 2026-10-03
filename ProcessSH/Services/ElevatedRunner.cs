@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using ProcessSH.Models;
 
 namespace ProcessSH.Services;
 
@@ -12,14 +13,19 @@ public static class ElevatedRunner
         string workingDirectory,
         double timeoutSeconds = 10.0)
     {
+        if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
+        {
+            workingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+
         var psi = new ProcessStartInfo
         {
             FileName = "pwsh.exe",
-            Arguments = $"-NoProfile -NonInteractive -Command \"{command.Replace("\"", "\\\"")}\"",
+            Arguments = BuildArguments(command),
             WorkingDirectory = workingDirectory,
             Verb = "runas",
             UseShellExecute = true,
-            CreateNoWindow = true,
+            // UseShellExecute=true 时 CreateNoWindow 无效，这里保留也不影响
         };
 
         try
@@ -31,19 +37,19 @@ public static class ElevatedRunner
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds));
             try
             {
-                await process.WaitForExitAsync(cts.Token);
+                await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
                 try { process.Kill(entireProcessTree: true); } catch { }
                 return CommandResult.Failure(
-                    $"命令执行超时（超过 {timeoutSeconds:F0} 秒）",
+                    Localization.Get("main.timeout", timeoutSeconds),
                     isTimeout: true);
             }
 
             return process.ExitCode == 0
                 ? CommandResult.Success("命令执行成功（提权模式无输出回传）")
-                : CommandResult.Failure($"退出码: {process.ExitCode}", process.ExitCode);
+                : CommandResult.Failure(Localization.Get("main.exitcode", process.ExitCode), process.ExitCode);
         }
         catch (System.ComponentModel.Win32Exception)
         {
@@ -53,5 +59,13 @@ public static class ElevatedRunner
         {
             return CommandResult.Failure(ex.Message);
         }
+    }
+
+    private static string BuildArguments(string command)
+    {
+        var script = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + command;
+        var bytes = System.Text.Encoding.Unicode.GetBytes(script);
+        var encoded = Convert.ToBase64String(bytes);
+        return $"-NoProfile -NonInteractive -EncodedCommand {encoded}";
     }
 }

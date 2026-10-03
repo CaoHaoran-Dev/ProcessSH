@@ -1,6 +1,7 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using ProcessSH.Models;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -17,7 +18,7 @@ public sealed partial class SettingsWindow : Window
         var appWindow = AppWindow.GetFromWindowId(windowId);
 
         appWindow.Resize(new SizeInt32(480, 640));
-        appWindow.SetIcon("Assets/AppIcon.ico");
+        TrySetIcon(appWindow);
 
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
@@ -25,6 +26,31 @@ public sealed partial class SettingsWindow : Window
             presenter.IsMinimizable = false;
         }
 
+        // 应用本地化标题
+        ApplyLocalization();
+        Localization.LanguageChanged += ApplyLocalization;
+
+        Closed += (s, e) =>
+        {
+            Localization.LanguageChanged -= ApplyLocalization;
+        };
+
         RootFrame.Navigate(typeof(SettingsPage));
+    }
+
+    private void ApplyLocalization()
+    {
+        Title = Localization.Get("settings.title");
+    }
+
+    private static void TrySetIcon(AppWindow appWindow)
+    {
+        try
+        {
+            var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (File.Exists(icon))
+                appWindow.SetIcon(icon);
+        }
+        catch { }
     }
 }

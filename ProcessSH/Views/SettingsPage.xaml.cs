@@ -1,9 +1,9 @@
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using ProcessSH.Models;
 using Windows.Storage.Pickers;
 using Windows.System;
-using Microsoft.UI.Input;
 using Windows.UI.Core;
 
 namespace ProcessSH.Views;
@@ -19,7 +19,16 @@ public sealed partial class SettingsPage : Page
         ApplyLocalization();
         LoadSettings();
         Localization.LanguageChanged += ApplyLocalization;
+        Unloaded += OnUnloaded;
         _loading = false;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        Localization.LanguageChanged -= ApplyLocalization;
+
+        if (_recordingHotkey)
+            StopRecording();
     }
 
     private void ApplyLocalization()
@@ -50,7 +59,6 @@ public sealed partial class SettingsPage : Page
         HideOnDeactivateToggle.IsChecked = s.HideOnDeactivate;
         HotkeyBox.Text = s.ToggleHotkey;
 
-        // 语言选择
         for (int i = 0; i < LanguageCombo.Items.Count; i++)
         {
             if (LanguageCombo.Items[i] is ComboBoxItem item &&
@@ -93,12 +101,13 @@ public sealed partial class SettingsPage : Page
 
     private async void ChooseWorkingDir_Click(object sender, RoutedEventArgs e)
     {
-        if (App.MainWindowInstance == null) return;
+        var host = App.MainWindowInstance;
+        if (host == null) return;
 
         var picker = new FolderPicker();
         picker.SuggestedStartLocation = PickerLocationId.ComputerFolder;
 
-        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindowInstance);
+        var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(host);
         WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
 
         var folder = await picker.PickSingleFolderAsync();
@@ -117,43 +126,75 @@ public sealed partial class SettingsPage : Page
         LoadSettings();
     }
 
+    // ─────────────────────────────────────────────
+    // 快捷键录制
+    // ─────────────────────────────────────────────
+
     private void RecordHotkey_Click(object sender, RoutedEventArgs e)
     {
+        if (_recordingHotkey) return;
+
         _recordingHotkey = true;
+
         HotkeyBox.Text = Localization.Get("settings.hotkey.recording");
         HotkeyStatus.Text = Localization.Get("settings.hotkey.recording.hint");
 
-        this.KeyDown += OnHotkeyRecordingKeyDown;
+        this.AddHandler(
+            UIElement.KeyDownEvent,
+            new Microsoft.UI.Xaml.Input.KeyEventHandler(OnHotkeyRecordingKeyDown),
+            true);
+
         this.Focus(FocusState.Programmatic);
     }
 
     private void OnHotkeyRecordingKeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
     {
         if (!_recordingHotkey) return;
-        e.Handled = true;
 
+        // 修饰键单独按下不处理
+        if (e.Key == VirtualKey.Control ||
+            e.Key == VirtualKey.Menu ||
+            e.Key == VirtualKey.Shift ||
+            e.Key == VirtualKey.LeftWindows ||
+            e.Key == VirtualKey.RightWindows)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // Esc 取消
         if (e.Key == VirtualKey.Escape)
         {
+            e.Handled = true;
             StopRecording();
             HotkeyBox.Text = AppSettings.Current.ToggleHotkey;
             HotkeyStatus.Text = Localization.Get("settings.hotkey.cancelled");
             return;
         }
 
-        if (e.Key == VirtualKey.Control || e.Key == VirtualKey.Menu ||
-            e.Key == VirtualKey.Shift || e.Key == VirtualKey.LeftWindows ||
-            e.Key == VirtualKey.RightWindows)
-            return;
+        e.Handled = true;
 
-        var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(CoreVirtualKeyStates.Down);
-        var alt = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu).HasFlag(CoreVirtualKeyStates.Down);
-        var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift).HasFlag(CoreVirtualKeyStates.Down);
-        var win = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.LeftWindows).HasFlag(CoreVirtualKeyStates.Down)
-            || InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.RightWindows).HasFlag(CoreVirtualKeyStates.Down);
+        var ctrl = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+            .HasFlag(CoreVirtualKeyStates.Down);
+        var alt = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu)
+            .HasFlag(CoreVirtualKeyStates.Down);
+        var shift = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift)
+            .HasFlag(CoreVirtualKeyStates.Down);
+        var win = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.LeftWindows)
+            .HasFlag(CoreVirtualKeyStates.Down)
+            || InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.RightWindows)
+            .HasFlag(CoreVirtualKeyStates.Down);
 
         if (!ctrl && !alt && !shift && !win)
         {
             HotkeyStatus.Text = Localization.Get("settings.hotkey.needModifier");
+            return;
+        }
+
+        // 禁止 Win 组合，RegisterHotKey 对 Win 支持不可靠
+        if (win)
+        {
+            HotkeyStatus.Text = "不支持 Win 组合键，请使用 Ctrl / Alt / Shift";
             return;
         }
 
@@ -168,12 +209,16 @@ public sealed partial class SettingsPage : Page
         if (ctrl) parts.Add("Ctrl");
         if (alt) parts.Add("Alt");
         if (shift) parts.Add("Shift");
-        if (win) parts.Add("Win");
         parts.Add(keyChar);
 
         var hotkeyString = string.Join("+", parts);
 
-        if (App.ApplyHotkey(hotkeyString))
+        System.Diagnostics.Debug.WriteLine($"[Settings] 录制: {hotkeyString}");
+
+        var ok = App.ApplyHotkey(hotkeyString);
+        System.Diagnostics.Debug.WriteLine($"[Settings] ApplyHotkey 返回: {ok}");
+
+        if (ok)
         {
             AppSettings.Current.ToggleHotkey = hotkeyString;
             AppSettings.Current.Save();
@@ -183,7 +228,6 @@ public sealed partial class SettingsPage : Page
         else
         {
             HotkeyStatus.Text = Localization.Get("settings.hotkey.conflict");
-            App.ApplyHotkey(AppSettings.Current.ToggleHotkey);
         }
 
         StopRecording();
@@ -191,8 +235,12 @@ public sealed partial class SettingsPage : Page
 
     private void StopRecording()
     {
+        if (!_recordingHotkey) return;
+
         _recordingHotkey = false;
-        this.KeyDown -= OnHotkeyRecordingKeyDown;
+        this.RemoveHandler(
+            UIElement.KeyDownEvent,
+            new Microsoft.UI.Xaml.Input.KeyEventHandler(OnHotkeyRecordingKeyDown));
     }
 
     private static string? KeyToChar(VirtualKey key)
@@ -206,7 +254,7 @@ public sealed partial class SettingsPage : Page
 
     private void ResetHotkey_Click(object sender, RoutedEventArgs e)
     {
-        const string defaultHotkey = "Ctrl+Win+R";
+        const string defaultHotkey = "Ctrl+Alt+R";
 
         if (App.ApplyHotkey(defaultHotkey))
         {

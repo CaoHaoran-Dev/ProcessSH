@@ -31,7 +31,6 @@
             LeftClickCommand="{x:Bind ToggleWindowCommand}">
             <tb:TaskbarIcon.ContextFlyout>
                 <MenuFlyout Opening="TrayMenu_Opening" Closed="TrayMenu_Closed">
-                    <MenuFlyoutItem x:Name="TrayNewItem" Click="TrayNewWindow_Click" />
                     <MenuFlyoutItem x:Name="TrayToggleItem" Click="TrayToggleWindow_Click" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Name="TrayClearItem" Click="TrayClearHistory_Click" />

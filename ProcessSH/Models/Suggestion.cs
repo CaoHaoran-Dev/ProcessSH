@@ -2,7 +2,6 @@ namespace ProcessSH.Models;
 
 public sealed class Suggestion : IEquatable<Suggestion>
 {
-    public Guid Id { get; } = Guid.NewGuid();
     public string Text { get; }
     public SuggestionType Type { get; }
     public int Priority { get; }
@@ -43,6 +42,12 @@ public sealed class Suggestion : IEquatable<Suggestion>
     public override bool Equals(object? obj) => Equals(obj as Suggestion);
 
     public override int GetHashCode() => HashCode.Combine(Text, Type);
+
+    /// <summary>
+    /// AutoSuggestBox 在某些路径下会调用 ToString() 显示/填入文本。
+    /// 必须返回 Text，否则会显示 "ProcessSH.Models.Suggestion"。
+    /// </summary>
+    public override string ToString() => Text;
 
     public string IconGlyph => Type switch
     {

@@ -6,7 +6,7 @@ namespace ProcessSH.ViewModels;
 
 public sealed class CommandViewModel : IDisposable
 {
-    private readonly CommandHistory _history = new();
+    private readonly CommandHistory _history = CommandHistory.Shared;
     private CancellationTokenSource? _currentCts;
 
     private int _historyIndex = -1;
@@ -22,7 +22,6 @@ public sealed class CommandViewModel : IDisposable
             if (_inputText == value) return;
             _inputText = value;
             OnPropertyChanged(nameof(InputText));
-            CloseSuggestions();
             ResetHistoryNavigation();
         }
     }
@@ -76,7 +75,6 @@ public sealed class CommandViewModel : IDisposable
     {
         var resolved = AppSettings.Current.ResolvedWorkingDirectory;
 
-        // 二次确认目录存在
         if (string.IsNullOrWhiteSpace(resolved) || !Directory.Exists(resolved))
         {
             resolved = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -130,26 +128,26 @@ public sealed class CommandViewModel : IDisposable
                 10.0,
                 cts.Token);
 
-            if (result.IsTimeout)
+            if (result.IsTimeout || result.IsCancelled)
             {
                 OutputText = result.Output;
             }
             else if (result.IsSuccess)
             {
                 OutputText = string.IsNullOrEmpty(result.Output)
-                    ? "命令执行成功（无输出）"
+                    ? Localization.Get("main.success.nooutput")
                     : result.Output;
             }
             else
             {
                 OutputText = string.IsNullOrEmpty(result.Output)
-                    ? $"退出码: {result.ExitCode}"
+                    ? Localization.Get("main.exitcode", result.ExitCode)
                     : result.Output;
             }
         }
         catch (OperationCanceledException)
         {
-            OutputText = "命令已取消";
+            OutputText = Localization.Get("main.cancelled");
         }
         catch (Exception ex)
         {
@@ -170,7 +168,7 @@ public sealed class CommandViewModel : IDisposable
         CommandExecutor.Shared.CancelCurrent();
         IsRunning = false;
         CanCancel = false;
-        OutputText = "命令已取消";
+        OutputText = Localization.Get("main.cancelled");
     }
 
     public void ClearOutput()
@@ -195,7 +193,8 @@ public sealed class CommandViewModel : IDisposable
         if (trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
             trimmed.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
         {
-            return trimmed.Contains(' ') ? $"start \"{trimmed}\"" : $"start {trimmed}";
+            // start 的第一个引号参数是窗口标题，必须留空
+            return trimmed.Contains(' ') ? $"start \"\" \"{trimmed}\"" : $"start {trimmed}";
         }
 
         return trimmed;

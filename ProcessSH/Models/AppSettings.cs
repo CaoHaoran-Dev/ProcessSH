@@ -15,6 +15,7 @@ public sealed class AppSettings
     {
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter() },
     };
 
     private static AppSettings? _instance;
@@ -29,8 +30,6 @@ public sealed class AppSettings
                 if (_instance == null)
                 {
                     _instance = Load();
-                    Localization.Current = _instance.Language;
-                    Localization.Initialize();
                 }
                 return _instance;
             }
@@ -39,7 +38,10 @@ public sealed class AppSettings
 
     public string DefaultWorkingDirectory { get; set; } = string.Empty;
     public bool HideOnDeactivate { get; set; } = true;
-    public string ToggleHotkey { get; set; } = "Ctrl+Win+R";
+
+    /// <summary>全局快捷键，默认 Ctrl+Alt+R（不含 Win，避免 RegisterHotKey 注册失败）</summary>
+    public string ToggleHotkey { get; set; } = "Ctrl+Alt+R";
+
     public AppLanguage Language { get; set; } = AppLanguage.SimplifiedChinese;
 
     [JsonIgnore]
@@ -86,11 +88,22 @@ public sealed class AppSettings
             {
                 var json = File.ReadAllText(SettingsPath);
                 var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
-                if (loaded != null) return loaded;
+                if (loaded != null)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[AppSettings] Loaded: Language={loaded.Language}, " +
+                        $"Hotkey={loaded.ToggleHotkey}, HideOnDeactivate={loaded.HideOnDeactivate}, " +
+                        $"Dir={loaded.DefaultWorkingDirectory}");
+                    return loaded;
+                }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AppSettings] Load 失败: {ex.Message}");
+        }
 
+        System.Diagnostics.Debug.WriteLine("[AppSettings] 使用默认值");
         return new AppSettings();
     }
 
@@ -101,8 +114,14 @@ public sealed class AppSettings
             Directory.CreateDirectory(SettingsDir);
             var json = JsonSerializer.Serialize(this, JsonOptions);
             File.WriteAllText(SettingsPath, json);
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[AppSettings] Saved: Language={Language}, Hotkey={ToggleHotkey}");
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[AppSettings] Save 失败: {ex.Message}");
+        }
     }
 
     public static void Reload()
@@ -110,11 +129,6 @@ public sealed class AppSettings
         lock (_lock)
         {
             _instance = Load();
-            if (_instance != null)
-            {
-                Localization.Current = _instance.Language;
-                Localization.Initialize();
-            }
         }
     }
 }

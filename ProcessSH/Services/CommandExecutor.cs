@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text;
+using ProcessSH.Models;
 
 namespace ProcessSH.Services;
 
@@ -20,7 +21,6 @@ public sealed class CommandExecutor
         double timeoutSeconds = 10.0,
         CancellationToken cancellationToken = default)
     {
-        // 兜底：工作目录无效时回退到用户主目录
         if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
         {
             workingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -39,7 +39,7 @@ public sealed class CommandExecutor
         var startInfo = new ProcessStartInfo
         {
             FileName = ResolvePwshPath(),
-            Arguments = $"-NoProfile -NonInteractive -Command \"[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; {EscapeForPowerShell(command)}\"",
+            Arguments = BuildArguments(command),
             WorkingDirectory = workingDirectory,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -92,17 +92,9 @@ public sealed class CommandExecutor
             var errorText = error.ToString().TrimEnd();
             var combined = CombineOutput(outputText, errorText);
 
-            if (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-            {
-                return CommandResult.Failure(
-                    $"命令执行超时（超过 {timeoutSeconds:F0} 秒）",
-                    exitCode: -1,
-                    isTimeout: true);
-            }
-
             if (cancellationToken.IsCancellationRequested)
             {
-                return CommandResult.Failure("命令已取消", exitCode: -1, isCancelled: true);
+                return CommandResult.Failure(Localization.Get("main.cancelled"), exitCode: -1, isCancelled: true);
             }
 
             if (process.ExitCode == 0)
@@ -111,14 +103,20 @@ public sealed class CommandExecutor
             }
 
             return CommandResult.Failure(
-                combined.Length > 0 ? combined : $"退出码: {process.ExitCode}",
+                combined.Length > 0 ? combined : Localization.Get("main.exitcode", process.ExitCode),
                 exitCode: process.ExitCode);
         }
         catch (OperationCanceledException)
         {
             TryKill(process);
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return CommandResult.Failure(Localization.Get("main.cancelled"), exitCode: -1, isCancelled: true);
+            }
+
             return CommandResult.Failure(
-                $"命令执行超时（超过 {timeoutSeconds:F0} 秒）",
+                Localization.Get("main.timeout", timeoutSeconds),
                 exitCode: -1,
                 isTimeout: true);
         }
@@ -182,9 +180,16 @@ public sealed class CommandExecutor
         return "pwsh.exe";
     }
 
-    private static string EscapeForPowerShell(string command)
+    /// <summary>
+    /// 用 -EncodedCommand 传命令，避免引号/特殊字符转义问题。
+    /// PowerShell 要求 UTF-16LE 的 Base64。
+    /// </summary>
+    private static string BuildArguments(string command)
     {
-        return command.Replace("\"", "\\\"");
+        var script = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + command;
+        var bytes = Encoding.Unicode.GetBytes(script);
+        var encoded = Convert.ToBase64String(bytes);
+        return $"-NoProfile -NonInteractive -EncodedCommand {encoded}";
     }
 }
 

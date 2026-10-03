@@ -39,6 +39,7 @@
                                 BorderThickness="0"
                                 Background="Transparent"
                                 VerticalAlignment="Center"
+                                TextMemberPath="Text"
                                 TextChanged="InputBox_TextChanged"
                                 QuerySubmitted="InputBox_QuerySubmitted"
                                 SuggestionChosen="InputBox_SuggestionChosen"

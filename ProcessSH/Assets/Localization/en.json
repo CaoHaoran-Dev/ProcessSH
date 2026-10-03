@@ -43,7 +43,7 @@
   "settings.powershell.install": "Install PowerShell from Microsoft Store",
 
   "about.title": "About",
-  "about.version": "Version 1.0.0",
+  "about.version": "Version {0}",
   "about.description": "A Windows port of RunProcess, quick command launcher",
   "about.repo": "GitHub Repository",
   "about.copyright": "MIT © 2026 CaoHaoran-Dev"

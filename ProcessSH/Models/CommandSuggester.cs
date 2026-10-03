@@ -22,53 +22,69 @@ public sealed class CommandSuggester
 
     public List<Suggestion> Suggest(string input)
     {
-        var words = input.Split(' ', StringSplitOptions.None);
-        var lastWord = words.LastOrDefault() ?? string.Empty;
+        var lastWord = GetLastWord(input);
 
         if (string.IsNullOrEmpty(lastWord)) return new List<Suggestion>();
 
-        if (IsPathLike(words, lastWord))
+        if (IsPathLike(input, lastWord))
             return SuggestPaths(lastWord);
 
         return SuggestCommandsAndHistory(lastWord);
     }
 
-    /// <summary>判断当前输入的最后一个词是否应该按路径补全</summary>
-    private static bool IsPathLike(string[] words, string lastWord)
+    /// <summary>
+    /// 取输入中光标所在的"词"。按空格切分，但忽略引号内的空格。
+    /// </summary>
+    private static string GetLastWord(string input)
     {
-        // 1. 以 / ~ \ 开头
+        if (string.IsNullOrEmpty(input)) return string.Empty;
+
+        bool inQuote = false;
+        int lastSpace = -1;
+        for (int i = 0; i < input.Length; i++)
+        {
+            var c = input[i];
+            if (c == '"') inQuote = !inQuote;
+            else if (c == ' ' && !inQuote) lastSpace = i;
+        }
+
+        var word = lastSpace >= 0 ? input.Substring(lastSpace + 1) : input;
+        return word.Trim('"');
+    }
+
+    /// <summary>判断当前输入的最后一个词是否应该按路径补全</summary>
+    private static bool IsPathLike(string input, string lastWord)
+    {
         if (lastWord.StartsWith("/") || lastWord.StartsWith("~") || lastWord.StartsWith("\\"))
             return true;
 
-        // 2. 盘符开头：C: D: E: 等
         if (lastWord.Length >= 2 &&
             char.IsLetter(lastWord[0]) &&
             lastWord[1] == ':')
             return true;
 
-        // 3. 相对路径：. 或 ..
         if (lastWord == "." || lastWord == ".." ||
             lastWord.StartsWith(".\\") || lastWord.StartsWith("..\\") ||
             lastWord.StartsWith("./") || lastWord.StartsWith("../"))
             return true;
 
-        // 4. 环境变量：%VAR% 或 $env:VAR
         if (lastWord.StartsWith("%") || lastWord.StartsWith("$env:"))
             return true;
 
-        // 5. 前面的词是路径型命令（cd、dir 等）
-        if (words.Length >= 2)
-        {
-            var firstWord = words[0];
-            if (PathOnlyCommands.Contains(firstWord))
-                return true;
-        }
+        var firstWord = GetFirstWord(input);
+        if (!string.IsNullOrEmpty(firstWord) && PathOnlyCommands.Contains(firstWord))
+            return true;
 
-        // 6. 含路径分隔符
         if (lastWord.Contains("\\") || lastWord.Contains("/"))
             return true;
 
         return false;
+    }
+
+    private static string GetFirstWord(string input)
+    {
+        var idx = input.IndexOf(' ');
+        return idx < 0 ? input : input.Substring(0, idx);
     }
 
     private List<Suggestion> SuggestPaths(string input)
@@ -77,14 +93,12 @@ public sealed class CommandSuggester
         {
             var expanded = Environment.ExpandEnvironmentVariables(input);
 
-            // $env:VAR 语法暂不展开
             if (expanded.StartsWith("$env:"))
                 return new List<Suggestion>();
 
             var dir = Path.GetDirectoryName(expanded);
             var partial = Path.GetFileName(expanded);
 
-            // 盘符根目录：如 "C:"
             if (string.IsNullOrEmpty(dir) && expanded.Length >= 2 && expanded[1] == ':')
             {
                 dir = expanded.Substring(0, 2) + "\\";
@@ -93,7 +107,6 @@ public sealed class CommandSuggester
 
             if (string.IsNullOrEmpty(dir)) dir = ".";
 
-            // 相对路径
             if (dir == ".")
                 dir = Directory.GetCurrentDirectory();
             else if (dir == "..")
@@ -108,6 +121,9 @@ public sealed class CommandSuggester
                     var display = path;
                     if (Directory.Exists(path))
                         display += "\\";
+                    // 含空格时加引号，避免执行时被拆成多个参数
+                    if (display.Contains(' '))
+                        display = "\"" + display + "\"";
                     return new Suggestion(display, SuggestionType.Path);
                 })
                 .ToList();

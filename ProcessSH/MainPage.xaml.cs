@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using ProcessSH.Models;
 using ProcessSH.ViewModels;
 using Windows.System;
@@ -27,10 +28,13 @@ public sealed partial class MainPage : Page
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.WindowTitleChanged += OnWindowTitleChanged;
 
+        SudoToggle.IsChecked = _viewModel.UseSudo;
+
         ApplyLocalization();
         Localization.LanguageChanged += ApplyLocalization;
 
-        InputBox.Focus(FocusState.Programmatic);
+        // 页面加载完成后主动聚焦一次
+        _ = FocusInputAsync();
     }
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -86,9 +90,11 @@ public sealed partial class MainPage : Page
         HintBlock.Visibility = Visibility.Visible;
         ClearButton.Visibility = Visibility.Collapsed;
 
+        SudoToggle.IsChecked = _viewModel.UseSudo;
+
         _hostWindow?.ResizeForOutput(0);
 
-        InputBox.Focus(FocusState.Programmatic);
+        _ = FocusInputAsync();
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -127,12 +133,73 @@ public sealed partial class MainPage : Page
                     if (InputBox.Text != _viewModel.InputText)
                         InputBox.Text = _viewModel.InputText;
                     break;
+
+                case nameof(CommandViewModel.UseSudo):
+                    if (SudoToggle.IsChecked != _viewModel.UseSudo)
+                        SudoToggle.IsChecked = _viewModel.UseSudo;
+                    break;
             }
         });
     }
 
     private void OnWindowTitleChanged(string title)
     {
+    }
+
+    // ─────────────────────────────────────────────
+    // 焦点
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// 把焦点交给输入框。多次重试 + 找内部 TextBox，
+    /// 解决 Hide/Show 后焦点不落到 AutoSuggestBox 的问题。
+    /// </summary>
+    public async Task FocusInputAsync()
+    {
+        // 确保输入框可用
+        if (!InputBox.IsEnabled)
+            InputBox.IsEnabled = true;
+
+        for (int i = 0; i < 8; i++)
+        {
+            try
+            {
+                InputBox.Focus(FocusState.Programmatic);
+
+                // AutoSuggestBox 内部有一个 TextBox，确保它也拿到焦点
+                var inner = FindDescendant<TextBox>(InputBox);
+                inner?.Focus(FocusState.Programmatic);
+
+                if (InputBox.FocusState != FocusState.Unfocused ||
+                    (inner != null && inner.FocusState != FocusState.Unfocused))
+                {
+                    return;
+                }
+            }
+            catch { }
+
+            await Task.Delay(40);
+        }
+    }
+
+    /// <summary>兼容旧调用（同步版）</summary>
+    public void FocusInput()
+    {
+        _ = FocusInputAsync();
+    }
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        var count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T t) return t;
+
+            var found = FindDescendant<T>(child);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     // ─────────────────────────────────────────────
@@ -154,7 +221,6 @@ public sealed partial class MainPage : Page
     {
         if (_viewModel == null) return;
 
-        // 点选建议项：只填入文本，不执行
         if (args.ChosenSuggestion is Suggestion chosen)
         {
             _viewModel.InputText = chosen.Text;
@@ -162,7 +228,6 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        // 按回车：执行命令
         _viewModel.InputText = sender.Text;
         await _viewModel.ExecuteCommandAsync();
     }
@@ -175,9 +240,11 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void InputBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void InputBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (_viewModel == null) return;
+
+        var hasSuggestions = _viewModel.Suggestions.Count > 0;
 
         switch (e.Key)
         {
@@ -189,15 +256,33 @@ public sealed partial class MainPage : Page
                 break;
 
             case VirtualKey.Up:
-                e.Handled = true;
-                _viewModel.NavigateHistoryUp();
-                InputBox.Text = _viewModel.InputText;
+                if (hasSuggestions)
+                {
+                    e.Handled = true;
+                    _viewModel.SelectPrevious();
+                    InputBox.ItemsSource = _viewModel.Suggestions.ToList();
+                }
+                else
+                {
+                    e.Handled = true;
+                    _viewModel.NavigateHistoryUp();
+                    InputBox.Text = _viewModel.InputText;
+                }
                 break;
 
             case VirtualKey.Down:
-                e.Handled = true;
-                _viewModel.NavigateHistoryDown();
-                InputBox.Text = _viewModel.InputText;
+                if (hasSuggestions)
+                {
+                    e.Handled = true;
+                    _viewModel.SelectNext();
+                    InputBox.ItemsSource = _viewModel.Suggestions.ToList();
+                }
+                else
+                {
+                    e.Handled = true;
+                    _viewModel.NavigateHistoryDown();
+                    InputBox.Text = _viewModel.InputText;
+                }
                 break;
 
             case VirtualKey.Escape:
@@ -222,10 +307,5 @@ public sealed partial class MainPage : Page
     {
         if (_viewModel != null)
             _viewModel.UseSudo = SudoToggle.IsChecked == true;
-    }
-
-    public void FocusInput()
-    {
-        InputBox.Focus(FocusState.Programmatic);
     }
 }

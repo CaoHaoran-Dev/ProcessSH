@@ -43,7 +43,7 @@
   "settings.powershell.install": "從 Microsoft Store 安裝 PowerShell",
 
   "about.title": "關於",
-  "about.version": "版本 1.0.0",
+  "about.version": "版本 {0}",
   "about.description": "Windows 版 RunProcess，快速命令啟動器",
   "about.repo": "GitHub 儲存庫",
   "about.copyright": "MIT © 2026 CaoHaoran-Dev"

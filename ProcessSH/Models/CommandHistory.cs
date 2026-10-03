@@ -40,11 +40,16 @@ public sealed class CommandHistory
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>进程内共享实例。所有窗口共用同一份历史。</summary>
+    public static CommandHistory Shared { get; } = new();
+
     private readonly Dictionary<string, HistoryEntry> _entries = new(StringComparer.Ordinal);
     private readonly object _lock = new();
     private readonly object _saveLock = new();
 
-    public CommandHistory()
+    private int _saveScheduled;
+
+    private CommandHistory()
     {
         Load();
     }
@@ -69,6 +74,25 @@ public sealed class CommandHistory
         {
             lock (_lock) { _entries.Clear(); }
         }
+    }
+
+    private void ScheduleSave()
+    {
+        // 去抖：短时间内多次 Record 只写一次磁盘
+        if (Interlocked.Exchange(ref _saveScheduled, 1) == 1) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(500).ConfigureAwait(false);
+                Save();
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _saveScheduled, 0);
+            }
+        });
     }
 
     private void Save()
@@ -117,7 +141,7 @@ public sealed class CommandHistory
             }
         }
 
-        Save();
+        ScheduleSave();
     }
 
     public List<HistoryEntry> Query(string prefix)
