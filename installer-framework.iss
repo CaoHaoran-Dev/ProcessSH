@@ -3,7 +3,7 @@
 ; 编译前请先执行 build.ps1 或手动 publish
 
 #define MyAppName "ProcessSH"
-#define MyAppVersion "1.0.1"
+#define MyAppVersion "2.0.0"
 #define MyAppPublisher "CaoHaoran-Dev"
 #define MyAppURL "https://github.com/CaoHaoran-Dev/ProcessSH"
 #define MyAppExeName "ProcessSH.exe"

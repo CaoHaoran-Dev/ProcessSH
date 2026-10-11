@@ -8,8 +8,7 @@ public sealed class AppSettings
     private static readonly string SettingsDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ProcessSH");
 
-    private static readonly string SettingsPath =
-        Path.Combine(SettingsDir, "settings.json");
+    private static readonly string SettingsPath = Path.Combine(SettingsDir, "settings.json");
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -27,22 +26,39 @@ public sealed class AppSettings
         {
             lock (_lock)
             {
-                if (_instance == null)
-                {
-                    _instance = Load();
-                }
+                _instance ??= Load();
                 return _instance;
             }
         }
     }
 
+    // ─── 已有 ───
     public string DefaultWorkingDirectory { get; set; } = string.Empty;
     public bool HideOnDeactivate { get; set; } = true;
-
-    /// <summary>全局快捷键，默认 Ctrl+Alt+R（不含 Win，避免 RegisterHotKey 注册失败）</summary>
     public string ToggleHotkey { get; set; } = "Ctrl+Alt+R";
-
     public AppLanguage Language { get; set; } = AppLanguage.SimplifiedChinese;
+
+    // ─── 对齐 RunProcess v3.4.0 ───
+
+    /// <summary>默认以管理员身份执行。</summary>
+    public bool DefaultSudo { get; set; } = false;
+
+    /// <summary>开机自启动。</summary>
+    public bool LaunchAtLogin { get; set; } = false;
+
+    /// <summary>启动后隐藏窗口（只留托盘）。</summary>
+    public bool HideWindowOnLaunch { get; set; } = false;
+
+    /// <summary>输出显示 ANSI 颜色。</summary>
+    public bool OutputColorsEnabled { get; set; } = true;
+
+    /// <summary>输出颜色色板。</summary>
+    public OutputColorScheme OutputColorScheme { get; set; } = OutputColorScheme.Auto;
+
+    /// <summary>窗口背景材质。</summary>
+    public WindowMaterial BackgroundMaterial { get; set; } = WindowMaterial.Mica;
+
+    // ─── 解析辅助 ───
 
     [JsonIgnore]
     public string ResolvedWorkingDirectory
@@ -55,8 +71,7 @@ public sealed class AppSettings
             try
             {
                 var expanded = Environment.ExpandEnvironmentVariables(DefaultWorkingDirectory);
-                if (Directory.Exists(expanded))
-                    return expanded;
+                if (Directory.Exists(expanded)) return expanded;
             }
             catch { }
 
@@ -69,8 +84,7 @@ public sealed class AppSettings
     {
         get
         {
-            if (string.IsNullOrWhiteSpace(DefaultWorkingDirectory))
-                return true;
+            if (string.IsNullOrWhiteSpace(DefaultWorkingDirectory)) return true;
             try
             {
                 var expanded = Environment.ExpandEnvironmentVariables(DefaultWorkingDirectory);
@@ -88,22 +102,13 @@ public sealed class AppSettings
             {
                 var json = File.ReadAllText(SettingsPath);
                 var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions);
-                if (loaded != null)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[AppSettings] Loaded: Language={loaded.Language}, " +
-                        $"Hotkey={loaded.ToggleHotkey}, HideOnDeactivate={loaded.HideOnDeactivate}, " +
-                        $"Dir={loaded.DefaultWorkingDirectory}");
-                    return loaded;
-                }
+                if (loaded != null) return loaded;
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[AppSettings] Load 失败: {ex.Message}");
         }
-
-        System.Diagnostics.Debug.WriteLine("[AppSettings] 使用默认值");
         return new AppSettings();
     }
 
@@ -114,9 +119,6 @@ public sealed class AppSettings
             Directory.CreateDirectory(SettingsDir);
             var json = JsonSerializer.Serialize(this, JsonOptions);
             File.WriteAllText(SettingsPath, json);
-
-            System.Diagnostics.Debug.WriteLine(
-                $"[AppSettings] Saved: Language={Language}, Hotkey={ToggleHotkey}");
         }
         catch (Exception ex)
         {
@@ -126,9 +128,21 @@ public sealed class AppSettings
 
     public static void Reload()
     {
-        lock (_lock)
-        {
-            _instance = Load();
-        }
+        lock (_lock) _instance = Load();
     }
+}
+
+public enum OutputColorScheme
+{
+    Auto,
+    Dark,
+    Light,
+}
+
+public enum WindowMaterial
+{
+    Mica,
+    MicaAlt,
+    Acrylic,
+    None,
 }

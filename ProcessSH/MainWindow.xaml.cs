@@ -5,6 +5,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using ProcessSH.Models;
 using ProcessSH.Services;
+using ProcessSH.Utils;
 using ProcessSH.Views;
 using WinRT.Interop;
 using Windows.Graphics;
@@ -20,9 +21,10 @@ public sealed partial class MainWindow : Window
     private bool _firstActivated;
     private DateTime _lastShownAt = DateTime.MinValue;
 
-    // 子窗口单例
     private SettingsWindow? _settingsWindow;
     private AboutWindow? _aboutWindow;
+    private HelpWindow? _helpWindow;
+    private Window? _historyWindow;
 
     private const int WindowWidth = 520;
     private const int BaseHeight = 200;
@@ -30,13 +32,8 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(
-        IntPtr hWnd,
-        IntPtr hWndInsertAfter,
-        int X,
-        int Y,
-        int cx,
-        int cy,
-        uint uFlags);
+        IntPtr hWnd, IntPtr hWndInsertAfter,
+        int X, int Y, int cx, int cy, uint uFlags);
 
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -56,6 +53,9 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // ✅ 应用用户设置的系统材质
+        BackdropHelper.ApplyFromSettings(this);
 
         _appWindow = GetAppWindow();
 
@@ -111,6 +111,7 @@ public sealed partial class MainWindow : Window
         TrayToggleItem.Text = Localization.Get("tray.toggle");
         TrayClearItem.Text = Localization.Get("tray.clearhistory");
         TraySettingsItem.Text = Localization.Get("tray.settings");
+        TrayHelpItem.Text = Localization.Get("tray.help");
         TrayAboutItem.Text = Localization.Get("tray.about");
         TrayQuitItem.Text = Localization.Get("tray.quit");
     }
@@ -128,10 +129,6 @@ public sealed partial class MainWindow : Window
         _appWindow.Move(new PointInt32(x, y));
     }
 
-    /// <summary>
-    /// 根据输出行数动态调整窗口高度。
-    /// 保持窗口底部不动，只向上扩展（Spotlight 风格）。
-    /// </summary>
     public void ResizeForOutput(int lineCount)
     {
         int lineHeight = 20;
@@ -166,17 +163,12 @@ public sealed partial class MainWindow : Window
             SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
-    public void SuppressHide(bool suppress)
-    {
-        _suppressHide = suppress;
-    }
+    public void SuppressHide(bool suppress) => _suppressHide = suppress;
 
     public void RefreshMainPage()
     {
         if (RootFrame.Content is MainPage page)
-        {
             page.Refresh();
-        }
     }
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
@@ -184,7 +176,6 @@ public sealed partial class MainWindow : Window
         if (!_hideOnDeactivate) return;
         if (_trayMenuOpen) return;
         if (_suppressHide) return;
-
         if ((DateTime.Now - _lastShownAt).TotalMilliseconds < 500) return;
 
         if (args.WindowActivationState == WindowActivationState.Deactivated)
@@ -217,29 +208,15 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    private void TrayMenu_Opening(object sender, object e)
-    {
-        _trayMenuOpen = true;
-    }
+    private void TrayMenu_Opening(object sender, object e) => _trayMenuOpen = true;
+    private void TrayMenu_Closed(object sender, object e) => _trayMenuOpen = false;
 
-    private void TrayMenu_Closed(object sender, object e)
-    {
-        _trayMenuOpen = false;
-    }
-
-    /// <summary>
-    /// 关闭主窗口 = 隐藏（不退出）。
-    /// 退出只通过托盘菜单“退出”。
-    /// </summary>
     private void OnWindowClosed(object sender, WindowEventArgs args)
     {
         args.Handled = true;
         try { _appWindow.Hide(); } catch { }
     }
 
-    /// <summary>
-    /// 显示窗口并强制把焦点给输入框。
-    /// </summary>
     public void ShowWindow()
     {
         var hwnd = WindowNative.GetWindowHandle(this);
@@ -259,36 +236,22 @@ public sealed partial class MainWindow : Window
         });
     }
 
-    public void HideWindow()
-    {
-        _appWindow.Hide();
-    }
+    public void HideWindow() => _appWindow.Hide();
 
     public void ToggleWindow()
     {
-        if (_appWindow.IsVisible)
-            HideWindow();
-        else
-            ShowWindow();
+        if (_appWindow.IsVisible) HideWindow();
+        else ShowWindow();
     }
 
-    private void TrayToggleWindow_Click(object sender, RoutedEventArgs e)
-    {
-        ToggleWindow();
-    }
+    private void TrayToggleWindow_Click(object sender, RoutedEventArgs e) => ToggleWindow();
 
     private void TrayClearHistory_Click(object sender, RoutedEventArgs e)
-    {
-        CommandHistory.Shared.ClearAll();
-    }
+        => CommandHistory.Shared.ClearAll();
 
     private void TraySettings_Click(object sender, RoutedEventArgs e)
     {
-        if (_settingsWindow != null)
-        {
-            _settingsWindow.Activate();
-            return;
-        }
+        if (_settingsWindow != null) { _settingsWindow.Activate(); return; }
 
         _settingsWindow = new SettingsWindow();
         SuppressHide(true);
@@ -303,13 +266,18 @@ public sealed partial class MainWindow : Window
         _settingsWindow.Activate();
     }
 
+    private void TrayHelp_Click(object sender, RoutedEventArgs e)
+    {
+        if (_helpWindow != null) { _helpWindow.Activate(); return; }
+
+        _helpWindow = new HelpWindow();
+        _helpWindow.Closed += (s, args) => _helpWindow = null;
+        _helpWindow.Activate();
+    }
+
     private void TrayAbout_Click(object sender, RoutedEventArgs e)
     {
-        if (_aboutWindow != null)
-        {
-            _aboutWindow.Activate();
-            return;
-        }
+        if (_aboutWindow != null) { _aboutWindow.Activate(); return; }
 
         _aboutWindow = new AboutWindow();
         SuppressHide(true);
@@ -323,9 +291,59 @@ public sealed partial class MainWindow : Window
         _aboutWindow.Activate();
     }
 
-    private void TrayQuit_Click(object sender, RoutedEventArgs e)
+    private void TrayQuit_Click(object sender, RoutedEventArgs e) => Environment.Exit(0);
+
+    public void OpenHistorySearch()
     {
-        Environment.Exit(0);
+        if (_historyWindow != null)
+        {
+            _historyWindow.Activate();
+            return;
+        }
+
+        var page = new HistorySearchPage();
+
+        var w = new Window
+        {
+            Title = Localization.Get("history.title"),
+            Content = page,
+        };
+
+        // ✅ 统一走 TrackWindow，材质自动应用，关闭自动注销
+        App.TrackWindow(w);
+
+        var hwnd = WindowNative.GetWindowHandle(w);
+        var wid = Win32Interop.GetWindowIdFromWindow(hwnd);
+        var aw = AppWindow.GetFromWindowId(wid);
+        aw.Resize(new SizeInt32(520, 420));
+
+        var displayArea = DisplayArea.GetFromWindowId(aw.Id, DisplayAreaFallback.Primary);
+        if (displayArea != null)
+        {
+            var wa = displayArea.WorkArea;
+            aw.Move(new PointInt32(
+                wa.X + (wa.Width - 520) / 2,
+                wa.Y + (wa.Height - 420) / 2));
+        }
+
+        page.CommandChosen += (cmd) =>
+        {
+            if (RootFrame.Content is MainPage mainPage)
+                mainPage.SetInputText(cmd);
+            w.Close();
+            ShowWindow();
+        };
+        page.CloseRequested += () => w.Close();
+
+        w.Closed += (s, args) =>
+        {
+            _historyWindow = null;
+            if (_suppressHide) SuppressHide(false);
+        };
+
+        SuppressHide(true);
+        _historyWindow = w;
+        w.Activate();
     }
 }
 
@@ -342,6 +360,5 @@ internal sealed class RelayCommand : ICommand
     }
 
     public bool CanExecute(object? parameter) => true;
-
     public void Execute(object? parameter) => _action();
 }

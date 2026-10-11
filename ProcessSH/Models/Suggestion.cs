@@ -1,3 +1,5 @@
+using Microsoft.UI.Xaml;
+
 namespace ProcessSH.Models;
 
 public sealed class Suggestion : IEquatable<Suggestion>
@@ -5,16 +7,19 @@ public sealed class Suggestion : IEquatable<Suggestion>
     public string Text { get; }
     public SuggestionType Type { get; }
     public int Priority { get; }
+    public string? Subtitle { get; }
 
-    public Suggestion(string text, SuggestionType type)
+    public Suggestion(string text, SuggestionType type, string? subtitle = null)
     {
         Text = text;
         Type = type;
+        Subtitle = subtitle;
         Priority = type switch
         {
+            SuggestionType.Alias   => 500,
             SuggestionType.History => 300,
             SuggestionType.Command => 200,
-            SuggestionType.Path => 100,
+            SuggestionType.Path    => 100,
             _ => 0,
         };
     }
@@ -23,12 +28,14 @@ public sealed class Suggestion : IEquatable<Suggestion>
     {
         Text = text;
         Type = type;
-        var safeCount = Math.Clamp(historyCount, 0, 100);
+        Subtitle = null;
+        var safe = Math.Clamp(historyCount, 0, 100);
         Priority = type switch
         {
-            SuggestionType.History => 300 + safeCount,
+            SuggestionType.Alias   => 500,
+            SuggestionType.History => 300 + safe,
             SuggestionType.Command => 200,
-            SuggestionType.Path => 100,
+            SuggestionType.Path    => 100,
             _ => 0,
         };
     }
@@ -43,23 +50,25 @@ public sealed class Suggestion : IEquatable<Suggestion>
 
     public override int GetHashCode() => HashCode.Combine(Text, Type);
 
-    /// <summary>
-    /// AutoSuggestBox 在某些路径下会调用 ToString() 显示/填入文本。
-    /// 必须返回 Text，否则会显示 "ProcessSH.Models.Suggestion"。
-    /// </summary>
     public override string ToString() => Text;
 
     public string IconGlyph => Type switch
     {
-        SuggestionType.History => "\xE81C",
-        SuggestionType.Command => "\xE756",
-        SuggestionType.Path => "\xE8B7",
+        SuggestionType.Alias   => "\xE8F1", // Wand
+        SuggestionType.History => "\xE81C", // History
+        SuggestionType.Command => "\xE756", // CommandPrompt
+        SuggestionType.Path    => "\xE8B7", // Folder
         _ => "\xE9CE",
     };
+
+    /// <summary>Subtitle 为空时折叠。供 x:Bind 使用，避免用转换器。</summary>
+    public Visibility SubtitleVisibility =>
+        string.IsNullOrEmpty(Subtitle) ? Visibility.Collapsed : Visibility.Visible;
 }
 
 public enum SuggestionType
 {
+    Alias,
     History,
     Command,
     Path,

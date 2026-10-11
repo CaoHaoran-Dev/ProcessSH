@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="ProcessSH.Views.OutputTextView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer x:Name="RootScroll"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Auto"
+                  Padding="0">
+        <RichTextBlock x:Name="OutputBlock"
+                       FontFamily="Cascadia Mono, Consolas, monospace"
+                       FontSize="13"
+                       IsTextSelectionEnabled="True"
+                       TextWrapping="Wrap"
+                       LineHeight="20" />
+    </ScrollViewer>
+</UserControl>

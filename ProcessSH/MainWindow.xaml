@@ -5,9 +5,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:tb="using:H.NotifyIcon"
     Title="ProcessSH">
-    <Window.SystemBackdrop>
-        <DesktopAcrylicBackdrop />
-    </Window.SystemBackdrop>
 
     <Grid x:Name="RootGrid">
         <Grid.RowDefinitions>
@@ -35,6 +32,7 @@
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Name="TrayClearItem" Click="TrayClearHistory_Click" />
                     <MenuFlyoutItem x:Name="TraySettingsItem" Click="TraySettings_Click" />
+                    <MenuFlyoutItem x:Name="TrayHelpItem" Click="TrayHelp_Click" />
                     <MenuFlyoutItem x:Name="TrayAboutItem" Click="TrayAbout_Click" />
                     <MenuFlyoutSeparator />
                     <MenuFlyoutItem x:Name="TrayQuitItem" Click="TrayQuit_Click" />

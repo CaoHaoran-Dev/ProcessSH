@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="ProcessSH.Views.HelpPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <NavigationView x:Name="Nav"
+                    PaneDisplayMode="Left"
+                    IsBackButtonVisible="Collapsed"
+                    IsSettingsVisible="False"
+                    IsPaneToggleButtonVisible="False"
+                    OpenPaneLength="200"
+                    SelectionChanged="Nav_SelectionChanged">
+        <NavigationView.PaneHeader>
+            <AutoSuggestBox x:Name="SearchBox"
+                            Margin="8"
+                            QueryIcon="Find"
+                            PlaceholderText="Search"
+                            TextChanged="SearchBox_TextChanged" />
+        </NavigationView.PaneHeader>
+
+        <NavigationView.MenuItems>
+            <NavigationViewItem Tag="overview">
+                <NavigationViewItem.Icon><FontIcon Glyph="&#xE8F1;" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Tag="shortcuts">
+                <NavigationViewItem.Icon><FontIcon Glyph="&#xE765;" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Tag="tips">
+                <NavigationViewItem.Icon><FontIcon Glyph="&#xEA80;" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Tag="sudo">
+                <NavigationViewItem.Icon><FontIcon Glyph="&#xE72E;" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem Tag="aliases">
+                <NavigationViewItem.Icon><FontIcon Glyph="&#xE8F1;" /></NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
+
+        <ScrollViewer Padding="28">
+            <StackPanel x:Name="ContentPanel" Spacing="16" MaxWidth="680">
+                <!-- 动态填充 -->
+            </StackPanel>
+        </ScrollViewer>
+    </NavigationView>
+</Page>

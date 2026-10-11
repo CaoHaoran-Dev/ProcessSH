@@ -1,11 +1,9 @@
 using System.Diagnostics;
+using System.Text;
 using ProcessSH.Models;
 
 namespace ProcessSH.Services;
 
-/// <summary>
-/// 按需提权执行器。通过 runas 动词启动独立的提权进程执行单条命令。
-/// </summary>
 public static class ElevatedRunner
 {
     public static async Task<CommandResult> ExecuteAsync(
@@ -14,9 +12,7 @@ public static class ElevatedRunner
         double timeoutSeconds = 10.0)
     {
         if (string.IsNullOrWhiteSpace(workingDirectory) || !Directory.Exists(workingDirectory))
-        {
             workingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        }
 
         var psi = new ProcessStartInfo
         {
@@ -25,7 +21,6 @@ public static class ElevatedRunner
             WorkingDirectory = workingDirectory,
             Verb = "runas",
             UseShellExecute = true,
-            // UseShellExecute=true 时 CreateNoWindow 无效，这里保留也不影响
         };
 
         try
@@ -43,17 +38,17 @@ public static class ElevatedRunner
             {
                 try { process.Kill(entireProcessTree: true); } catch { }
                 return CommandResult.Failure(
-                    Localization.Get("main.timeout", timeoutSeconds),
-                    isTimeout: true);
+                    Localization.Get("main.timeout", timeoutSeconds), isTimeout: true);
             }
 
             return process.ExitCode == 0
-                ? CommandResult.Success("命令执行成功（提权模式无输出回传）")
-                : CommandResult.Failure(Localization.Get("main.exitcode", process.ExitCode), process.ExitCode);
+                ? CommandResult.Success(Localization.Get("output.success.sudo"))
+                : CommandResult.Failure(
+                    Localization.Get("main.exitcode", process.ExitCode), process.ExitCode);
         }
         catch (System.ComponentModel.Win32Exception)
         {
-            return CommandResult.Failure("用户取消了提权请求");
+            return CommandResult.Failure(Localization.Get("error.sudo.cancelled"));
         }
         catch (Exception ex)
         {
@@ -63,8 +58,13 @@ public static class ElevatedRunner
 
     private static string BuildArguments(string command)
     {
-        var script = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + command;
-        var bytes = System.Text.Encoding.Unicode.GetBytes(script);
+        var script = string.Join("; ", new[]
+        {
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+            "$OutputEncoding = [System.Text.Encoding]::UTF8",
+            command,
+        });
+        var bytes = Encoding.Unicode.GetBytes(script);
         var encoded = Convert.ToBase64String(bytes);
         return $"-NoProfile -NonInteractive -EncodedCommand {encoded}";
     }

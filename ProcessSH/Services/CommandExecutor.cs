@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using ProcessSH.Models;
+using ProcessSH.Utils;
 
 namespace ProcessSH.Services;
 
@@ -31,10 +32,7 @@ public sealed class CommandExecutor
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromSeconds(timeoutSeconds));
 
-        lock (_stateLock)
-        {
-            _currentCts = cts;
-        }
+        lock (_stateLock) _currentCts = cts;
 
         var startInfo = new ProcessStartInfo
         {
@@ -48,6 +46,20 @@ public sealed class CommandExecutor
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
         };
+
+        // 追加自定义 PATH（不覆盖）
+        var customPath = PathStore.Shared.CustomPathString();
+        if (!string.IsNullOrEmpty(customPath))
+        {
+            var existing = startInfo.Environment.TryGetValue("PATH", out var p) ? p : "";
+            startInfo.Environment["PATH"] = string.IsNullOrEmpty(existing)
+                ? customPath
+                : existing + ";" + customPath;
+        }
+
+        // 让 ANSI 颜色正常输出
+        startInfo.Environment["TERM"] = "xterm-256color";
+        startInfo.Environment["COLORTERM"] = "truecolor";
 
         var process = new Process { StartInfo = startInfo };
         var output = new StringBuilder();
@@ -80,10 +92,7 @@ public sealed class CommandExecutor
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
 
-            lock (_stateLock)
-            {
-                _currentProcess = process;
-            }
+            lock (_stateLock) _currentProcess = process;
 
             await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
             process.WaitForExit();
@@ -93,14 +102,10 @@ public sealed class CommandExecutor
             var combined = CombineOutput(outputText, errorText);
 
             if (cancellationToken.IsCancellationRequested)
-            {
                 return CommandResult.Failure(Localization.Get("main.cancelled"), exitCode: -1, isCancelled: true);
-            }
 
             if (process.ExitCode == 0)
-            {
                 return CommandResult.Success(combined);
-            }
 
             return CommandResult.Failure(
                 combined.Length > 0 ? combined : Localization.Get("main.exitcode", process.ExitCode),
@@ -109,21 +114,16 @@ public sealed class CommandExecutor
         catch (OperationCanceledException)
         {
             TryKill(process);
-
             if (cancellationToken.IsCancellationRequested)
-            {
-                return CommandResult.Failure(Localization.Get("main.cancelled"), exitCode: -1, isCancelled: true);
-            }
+                return CommandResult.Failure(Localization.Get("main.cancelled"), -1, isCancelled: true);
 
             return CommandResult.Failure(
                 Localization.Get("main.timeout", timeoutSeconds),
-                exitCode: -1,
-                isTimeout: true);
+                -1, isTimeout: true);
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[CommandExecutor] 异常: {ex.GetType().Name}: {ex.Message}");
-            return CommandResult.Failure(ex.Message, exitCode: -1);
+            return CommandResult.Failure(ex.Message, -1);
         }
         finally
         {
@@ -181,12 +181,19 @@ public sealed class CommandExecutor
     }
 
     /// <summary>
-    /// 用 -EncodedCommand 传命令，避免引号/特殊字符转义问题。
-    /// PowerShell 要求 UTF-16LE 的 Base64。
+    /// 用 -EncodedCommand 传命令，避免引号/中文编码问题。
+    /// pwsh 要求 UTF-16LE 的 Base64。
     /// </summary>
     private static string BuildArguments(string command)
     {
-        var script = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " + command;
+        var script = string.Join("; ", new[]
+        {
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+            "$OutputEncoding = [System.Text.Encoding]::UTF8",
+            "$PSStyle.OutputRendering = 'Ansi'",
+            command,
+        });
+
         var bytes = Encoding.Unicode.GetBytes(script);
         var encoded = Convert.ToBase64String(bytes);
         return $"-NoProfile -NonInteractive -EncodedCommand {encoded}";
@@ -204,16 +211,12 @@ public sealed class CommandResult
 
     public static CommandResult Success(string output) => new()
     {
-        IsSuccess = true,
-        Output = output,
-        ExitCode = 0,
+        IsSuccess = true, Output = output, ExitCode = 0,
     };
 
     public static CommandResult Failure(
-        string errorMessage,
-        int exitCode = -1,
-        bool isTimeout = false,
-        bool isCancelled = false) => new()
+        string errorMessage, int exitCode = -1,
+        bool isTimeout = false, bool isCancelled = false) => new()
     {
         IsSuccess = false,
         Output = errorMessage,

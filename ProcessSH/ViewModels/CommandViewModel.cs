@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using ProcessSH.Models;
 using ProcessSH.Services;
+using ProcessSH.Utils;
 
 namespace ProcessSH.ViewModels;
 
@@ -74,28 +75,42 @@ public sealed class CommandViewModel : IDisposable
     public CommandViewModel()
     {
         var resolved = AppSettings.Current.ResolvedWorkingDirectory;
-
         if (string.IsNullOrWhiteSpace(resolved) || !Directory.Exists(resolved))
-        {
             resolved = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        }
 
         CurrentWorkingDirectory = resolved;
-        System.Diagnostics.Debug.WriteLine($"[CommandViewModel] 工作目录: {CurrentWorkingDirectory}");
+        UseSudo = AppSettings.Current.DefaultSudo;
 
         UpdateWindowTitle();
     }
+
+    // ─── 执行 ───
 
     public async Task ExecuteCommandAsync()
     {
         var input = InputText.Trim();
         if (string.IsNullOrEmpty(input)) return;
 
-        var processed = ProcessCommand(input);
-        if (processed != input)
+        // 1. 可启动文件识别
+        var processed = CommandPreprocessor.Process(input);
+
+        // 2. 自定义路径查找
+        processed = CommandPreprocessor.ResolveCustomPath(processed);
+
+        // 3. 别名展开
+        processed = CommandPreprocessor.ExpandAlias(processed);
+
+        // 4. 交互式命令检测
+        if (CommandPreprocessor.IsInteractive(processed))
         {
-            InputText = processed;
+            IsRunning = false;
+            CanCancel = false;
+            OutputText = Localization.Get("error.interactive.command");
+            return;
         }
+
+        if (processed != input)
+            InputText = processed;
 
         _history.Record(processed);
         ResetHistoryNavigation();
@@ -111,39 +126,24 @@ public sealed class CommandViewModel : IDisposable
         {
             if (UseSudo)
             {
-                var elevatedResult = await ElevatedRunner.ExecuteAsync(
-                    processed,
-                    CurrentWorkingDirectory,
-                    10.0);
-
-                OutputText = elevatedResult.IsSuccess
-                    ? elevatedResult.Output
-                    : $"❌ {elevatedResult.Output}";
+                var r = await ElevatedRunner.ExecuteAsync(processed, CurrentWorkingDirectory, 10.0);
+                OutputText = r.IsSuccess ? r.Output : $"❌ {r.Output}";
                 return;
             }
 
             var result = await CommandExecutor.Shared.ExecuteAsync(
-                processed,
-                CurrentWorkingDirectory,
-                10.0,
-                cts.Token);
+                processed, CurrentWorkingDirectory, 10.0, cts.Token);
 
             if (result.IsTimeout || result.IsCancelled)
-            {
                 OutputText = result.Output;
-            }
             else if (result.IsSuccess)
-            {
                 OutputText = string.IsNullOrEmpty(result.Output)
                     ? Localization.Get("main.success.nooutput")
                     : result.Output;
-            }
             else
-            {
                 OutputText = string.IsNullOrEmpty(result.Output)
                     ? Localization.Get("main.exitcode", result.ExitCode)
                     : result.Output;
-            }
         }
         catch (OperationCanceledException)
         {
@@ -164,17 +164,16 @@ public sealed class CommandViewModel : IDisposable
     public void CancelExecution()
     {
         if (!IsRunning) return;
+
         try { _currentCts?.Cancel(); } catch { }
         CommandExecutor.Shared.CancelCurrent();
+
         IsRunning = false;
         CanCancel = false;
         OutputText = Localization.Get("main.cancelled");
     }
 
-    public void ClearOutput()
-    {
-        OutputText = string.Empty;
-    }
+    public void ClearOutput() => OutputText = string.Empty;
 
     public void ClearHistory()
     {
@@ -183,22 +182,7 @@ public sealed class CommandViewModel : IDisposable
         CloseSuggestions();
     }
 
-    private static string ProcessCommand(string input)
-    {
-        var trimmed = input.Trim();
-        var lower = trimmed.ToLowerInvariant();
-
-        if (lower.StartsWith("start ")) return trimmed;
-
-        if (trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ||
-            trimmed.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
-        {
-            // start 的第一个引号参数是窗口标题，必须留空
-            return trimmed.Contains(' ') ? $"start \"\" \"{trimmed}\"" : $"start {trimmed}";
-        }
-
-        return trimmed;
-    }
+    // ─── 补全 ───
 
     public void RequestSuggestions()
     {
@@ -212,9 +196,7 @@ public sealed class CommandViewModel : IDisposable
         var results = suggester.Suggest(InputText);
 
         Suggestions.Clear();
-        foreach (var s in results)
-            Suggestions.Add(s);
-
+        foreach (var s in results) Suggestions.Add(s);
         SelectedIndex = 0;
     }
 
@@ -259,12 +241,14 @@ public sealed class CommandViewModel : IDisposable
         ResetHistoryNavigation();
     }
 
+    // ─── 历史导航（frecency）───
+
     public void NavigateHistoryUp()
     {
         if (_historyCommands.Count == 0)
         {
             _historyCommands = _history.GetAll()
-                .OrderByDescending(e => e.LastUsed)
+                .OrderByDescending(e => e.Frecency)
                 .Select(e => e.Command)
                 .ToList();
             _currentInputBackup = InputText;

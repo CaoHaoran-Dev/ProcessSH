@@ -13,11 +13,14 @@ public sealed partial class AboutWindow : Window
     {
         InitializeComponent();
 
+        // ✅ 交给 App 统一跟踪材质
+        App.TrackWindow(this);
+
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         var appWindow = AppWindow.GetFromWindowId(windowId);
 
-        appWindow.Resize(new SizeInt32(360, 220));
+        appWindow.Resize(new SizeInt32(400, 340));
         TrySetIcon(appWindow);
 
         if (appWindow.Presenter is OverlappedPresenter presenter)
@@ -27,7 +30,6 @@ public sealed partial class AboutWindow : Window
             presenter.IsResizable = false;
         }
 
-        // 应用本地化标题
         ApplyLocalization();
         Localization.LanguageChanged += ApplyLocalization;
 

@@ -13,23 +13,25 @@ public sealed partial class SettingsWindow : Window
     {
         InitializeComponent();
 
+        // ✅ 交给 App 统一跟踪材质
+        App.TrackWindow(this);
+
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         var appWindow = AppWindow.GetFromWindowId(windowId);
 
-        appWindow.Resize(new SizeInt32(480, 640));
+        appWindow.Resize(new SizeInt32(780, 640));
         TrySetIcon(appWindow);
 
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
+            presenter.IsResizable = true;
         }
 
-        // 应用本地化标题
         ApplyLocalization();
         Localization.LanguageChanged += ApplyLocalization;
-
         Closed += (s, e) =>
         {
             Localization.LanguageChanged -= ApplyLocalization;

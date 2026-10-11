@@ -1,9 +1,11 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using ProcessSH.Models;
 using ProcessSH.ViewModels;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 
 namespace ProcessSH;
@@ -12,6 +14,12 @@ public sealed partial class MainPage : Page
 {
     private CommandViewModel? _viewModel;
     private MainWindow? _hostWindow;
+
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
+
+    private const int VK_CONTROL = 0x11;
+    private static bool IsCtrlDown() => (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
     public MainPage()
     {
@@ -33,7 +41,6 @@ public sealed partial class MainPage : Page
         ApplyLocalization();
         Localization.LanguageChanged += ApplyLocalization;
 
-        // 页面加载完成后主动聚焦一次
         _ = FocusInputAsync();
     }
 
@@ -69,6 +76,7 @@ public sealed partial class MainPage : Page
             HintBlock.Text = Localization.Get("main.hint");
             ToolTipService.SetToolTip(CancelButton, Localization.Get("main.cancel.tooltip"));
             ToolTipService.SetToolTip(ClearButton, Localization.Get("main.clear.tooltip"));
+            ToolTipService.SetToolTip(CopyButton, Localization.Get("main.copy.tooltip"));
         });
     }
 
@@ -85,10 +93,11 @@ public sealed partial class MainPage : Page
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         _viewModel.WindowTitleChanged += OnWindowTitleChanged;
 
-        OutputBlock.Text = string.Empty;
-        OutputScroll.Visibility = Visibility.Collapsed;
+        OutputView.Text = string.Empty;
+        OutputView.Visibility = Visibility.Collapsed;
         HintBlock.Visibility = Visibility.Visible;
         ClearButton.Visibility = Visibility.Collapsed;
+        CopyButton.Visibility = Visibility.Collapsed;
 
         SudoToggle.IsChecked = _viewModel.UseSudo;
 
@@ -106,16 +115,18 @@ public sealed partial class MainPage : Page
             switch (e.PropertyName)
             {
                 case nameof(CommandViewModel.OutputText):
-                    OutputBlock.Text = _viewModel.OutputText;
+                    OutputView.Text = _viewModel.OutputText;
                     var hasOutput = !string.IsNullOrEmpty(_viewModel.OutputText);
-                    OutputScroll.Visibility = hasOutput ? Visibility.Visible : Visibility.Collapsed;
+                    OutputView.Visibility = hasOutput ? Visibility.Visible : Visibility.Collapsed;
                     HintBlock.Visibility = hasOutput ? Visibility.Collapsed : Visibility.Visible;
                     ClearButton.Visibility = hasOutput ? Visibility.Visible : Visibility.Collapsed;
+                    CopyButton.Visibility = hasOutput ? Visibility.Visible : Visibility.Collapsed;
 
                     if (hasOutput)
                     {
                         var lineCount = _viewModel.OutputText.Split('\n').Length;
                         _hostWindow?.ResizeForOutput(lineCount);
+                        OutputView.ScrollToEnd();
                     }
                     else
                     {
@@ -142,21 +153,10 @@ public sealed partial class MainPage : Page
         });
     }
 
-    private void OnWindowTitleChanged(string title)
-    {
-    }
+    private void OnWindowTitleChanged(string title) { }
 
-    // ─────────────────────────────────────────────
-    // 焦点
-    // ─────────────────────────────────────────────
-
-    /// <summary>
-    /// 把焦点交给输入框。多次重试 + 找内部 TextBox，
-    /// 解决 Hide/Show 后焦点不落到 AutoSuggestBox 的问题。
-    /// </summary>
     public async Task FocusInputAsync()
     {
-        // 确保输入框可用
         if (!InputBox.IsEnabled)
             InputBox.IsEnabled = true;
 
@@ -165,8 +165,6 @@ public sealed partial class MainPage : Page
             try
             {
                 InputBox.Focus(FocusState.Programmatic);
-
-                // AutoSuggestBox 内部有一个 TextBox，确保它也拿到焦点
                 var inner = FindDescendant<TextBox>(InputBox);
                 inner?.Focus(FocusState.Programmatic);
 
@@ -182,11 +180,7 @@ public sealed partial class MainPage : Page
         }
     }
 
-    /// <summary>兼容旧调用（同步版）</summary>
-    public void FocusInput()
-    {
-        _ = FocusInputAsync();
-    }
+    public void FocusInput() => _ = FocusInputAsync();
 
     private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
     {
@@ -202,9 +196,13 @@ public sealed partial class MainPage : Page
         return null;
     }
 
-    // ─────────────────────────────────────────────
-    // AutoSuggestBox 事件
-    // ─────────────────────────────────────────────
+    public void SetInputText(string text)
+    {
+        if (_viewModel == null) return;
+        _viewModel.InputText = text;
+        InputBox.Text = text;
+        _ = FocusInputAsync();
+    }
 
     private void InputBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
     {
@@ -243,6 +241,26 @@ public sealed partial class MainPage : Page
     private void InputBox_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (_viewModel == null) return;
+
+        var ctrl = IsCtrlDown();
+
+        // Ctrl+R：历史搜索
+        if (ctrl && e.Key == VirtualKey.R)
+        {
+            e.Handled = true;
+            _hostWindow?.OpenHistorySearch();
+            return;
+        }
+
+        // Ctrl+Space：补全
+        if (ctrl && e.Key == VirtualKey.Space)
+        {
+            e.Handled = true;
+            _viewModel.InputText = InputBox.Text;
+            _viewModel.RequestSuggestions();
+            InputBox.ItemsSource = _viewModel.Suggestions.ToList();
+            return;
+        }
 
         var hasSuggestions = _viewModel.Suggestions.Count > 0;
 
@@ -301,6 +319,24 @@ public sealed partial class MainPage : Page
     private void ClearButton_Click(object sender, RoutedEventArgs e)
     {
         _viewModel?.ClearOutput();
+    }
+
+    private void CopyButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || string.IsNullOrEmpty(_viewModel.OutputText)) return;
+
+        try
+        {
+            var dataPackage = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            dataPackage.SetText(_viewModel.OutputText);
+            Clipboard.SetContent(dataPackage);
+            Clipboard.Flush();
+            _ = FocusInputAsync();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MainPage] Copy 失败: {ex.Message}");
+        }
     }
 
     private void SudoToggle_Changed(object sender, RoutedEventArgs e)
